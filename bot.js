@@ -242,6 +242,11 @@ async function checkAllUsers() {
           logger.info({ chatId, wallet, market: pos.market, ltv, liquidationLtv, healthFactor }, "Health factor");
           
           let prefix = "";
+          
+          if (healthFactor > WARNING_HEALTH_FACTOR) {
+            continue;
+          }
+
           if (healthFactor <= DANGER_HEALTH_FACTOR) {
             prefix = "DANGER: ";
           } else if (healthFactor <= WARNING_HEALTH_FACTOR) {
