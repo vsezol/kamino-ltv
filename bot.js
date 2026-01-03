@@ -307,10 +307,12 @@ async function checkAllUsers() {
 
         if (!positions || positions.length === 0) continue;
 
-        
         for (const pos of positions) {
           const ltv = parseFloat(pos.ltv);
           const liquidationLtv = parseFloat(pos.liquidationLtv);
+          const healthFactor = liquidationLtv / ltv;
+
+          if (healthFactor > user.warningHealthFactor) continue;
 
           logger.info({ chatId, wallet, market: pos.market, ltv, liquidationLtv }, "Health factor");
           
