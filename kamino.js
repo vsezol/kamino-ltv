@@ -57,7 +57,7 @@ function parseObligation(obl, marketName) {
   };
 }
 
-export async function scanAllMarketsForWallet(walletAddress) {
+export async function scanAllMarketsForWallet(walletAddress, marketCheckCallback) {
   const markets = getCachedMarkets();
   
   if (!markets || markets.length === 0) {
@@ -66,6 +66,7 @@ export async function scanAllMarketsForWallet(walletAddress) {
   
   const results = [];
   
+  let index = 0;
   for (const market of markets) {
     try {
       const obligations = await getObligations(market.lendingMarket, walletAddress);
@@ -79,6 +80,8 @@ export async function scanAllMarketsForWallet(walletAddress) {
     } catch (error) {
       logger.warn({ market: market.name, error: error.message }, "Failed to check market");
     }
+
+    marketCheckCallback?.({current: index++, total: markets.length});
   }
   
   return results;

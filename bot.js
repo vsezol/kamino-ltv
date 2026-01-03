@@ -26,6 +26,14 @@ async function deleteMessage(ctx, messageId) {
   }
 }
 
+async function editMessage(ctx, messageId, text) {
+  try {
+    await bot.telegram.editMessageText(ctx.chat.id, messageId, null, text);
+  } catch {
+    // ignore if message already deleted
+  }
+}
+
 bot.start((ctx) => {
   ctx.reply(
     "LTV Watch Bot\n\n" +
@@ -34,6 +42,9 @@ bot.start((ctx) => {
     "/list - show your wallets\n" +
     "/check - check LTV for your wallets\n" +
     "/refreshmarkets - rescan markets for your wallets\n" +
+    `/setwarning <value> - set warning health factor (default: ${WARNING_HEALTH_FACTOR})\n` +
+    `/setdanger <value> - set danger health factor (default: ${DANGER_HEALTH_FACTOR})\n` +
+    "/settings - show your current settings\n" +
     "/stop - stop monitoring and remove all wallets"
   );
 });
@@ -49,7 +60,9 @@ bot.command("add", async (ctx) => {
   const statusMsg = await ctx.reply("Scanning all markets...");
   
   try {
-    const positions = await scanAllMarketsForWallet(wallet);
+    const positions = await scanAllMarketsForWallet(wallet, (marketCheck) => {
+      editMessage(ctx, statusMsg.message_id, `Scanning market ${marketCheck.current + 1} of ${marketCheck.total}...`);
+    });
     
     await deleteMessage(ctx, statusMsg.message_id);
     
@@ -60,6 +73,9 @@ bot.command("add", async (ctx) => {
     let user = getUser(chatId);
     if (!user) {
       user = { wallets: {} };
+    }
+    if (!user.wallets) {
+      user.wallets = {};
     }
     
     const marketNames = positions.map(p => p.market);
@@ -72,8 +88,9 @@ bot.command("add", async (ctx) => {
     
     logger.info({ chatId, wallet, markets: marketNames }, "Wallet added");
     
-    const lines = positions.map(p => `${p.market}: ${p.ltv}% (liq: ${p.liquidationLtv}%) (hf: ${p.healthFactor})`);
-    ctx.reply(`Wallet added\n\n\`${wallet}\`\n\n${lines.join("\n")}`, { parse_mode: "Markdown" });
+    const lines = positions.map(p => formatPosition({user, position: p}));
+
+    ctx.reply(`Wallet added!\n\n\`${wallet}\`\n\n${lines.join("\n")}`, { parse_mode: "Markdown" });
   } catch (error) {
     await deleteMessage(ctx, statusMsg.message_id);
     logger.error({ chatId, wallet, error: error.message }, "Failed to add wallet");
@@ -144,9 +161,7 @@ bot.command("check", async (ctx) => {
       const positions = await checkSpecificMarkets(wallet, markets);
       
       if (positions && positions.length > 0) {
-        const lines = positions.map(p => 
-          `${p.market}: ${p.ltv}% (liq: ${p.liquidationLtv}%) (hf: ${p.healthFactor})`
-        );
+        const lines = positions.map(p => formatPosition({user, position: p}));
         results.push(`\`${wallet}\`\n\n${lines.join("\n")}`);
       } else {
         results.push(`\`${wallet}\`\nNo positions`);
@@ -181,7 +196,7 @@ bot.command("refreshmarkets", async (ctx) => {
         const marketNames = positions.map(p => p.market);
         user.wallets[wallet].markets = marketNames;
         
-        const lines = positions.map(p => `${p.market}: ${p.ltv}% (liq: ${p.liquidationLtv}%) (hf: ${p.healthFactor})`);
+        const lines = positions.map(p => formatPosition({user, position: p}));
         results.push(`\`${wallet}\`\n${lines.join("\n")}`);
       } else {
         user.wallets[wallet].markets = [];
@@ -196,6 +211,65 @@ bot.command("refreshmarkets", async (ctx) => {
   setUser(chatId, user);
   await deleteMessage(ctx, statusMsg.message_id);
   ctx.reply(`Markets refreshed\n\n${results.join("\n\n")}`, { parse_mode: "Markdown" });
+});
+
+bot.command("setwarning", (ctx) => {
+  const value = parseFloat(ctx.message.text.split(" ")[1]);
+  const chatId = String(ctx.chat.id);
+  
+  if (isNaN(value) || value <= 0) {
+    return ctx.reply("Usage: /setwarning <positive_number>\nExample: /setwarning 1.5");
+  }
+  
+  let user = getUser(chatId);
+  if (!user) {
+    user = { wallets: {} };
+  }
+  
+  user.warningHealthFactor = value;
+  setUser(chatId, user);
+  
+  logger.info({ chatId, warningHealthFactor: value }, "Warning health factor set");
+  ctx.reply(`Warning health factor set to ${value}`);
+});
+
+bot.command("setdanger", (ctx) => {
+  const value = parseFloat(ctx.message.text.split(" ")[1]);
+  const chatId = String(ctx.chat.id);
+  
+  if (isNaN(value) || value <= 0) {
+    return ctx.reply("Usage: /setdanger <positive_number>\nExample: /setdanger 1.3");
+  }
+  
+  let user = getUser(chatId);
+  if (!user) {
+    user = { wallets: {} };
+  }
+  
+  user.dangerHealthFactor = value;
+  setUser(chatId, user);
+  
+  logger.info({ chatId, dangerHealthFactor: value }, "Danger health factor set");
+  ctx.reply(`Danger health factor set to ${value}`);
+});
+
+bot.command("settings", (ctx) => {
+  const chatId = String(ctx.chat.id);
+  const user = getUser(chatId);
+  
+  if (!user) {
+    return ctx.reply("No settings found. Use /add <wallet> to start.");
+  }
+  
+  const warningHf = user?.warningHealthFactor ?? WARNING_HEALTH_FACTOR;
+  const dangerHf = user?.dangerHealthFactor ?? DANGER_HEALTH_FACTOR;
+  
+  const lines = [
+    `Warning health factor: ${warningHf}${user?.warningHealthFactor ? "" : " (default)"}`,
+    `Danger health factor: ${dangerHf}${user?.dangerHealthFactor ? "" : " (default)"}`
+  ];
+  
+  ctx.reply(`Your settings:\n\n${lines.join("\n")}`);
 });
 
 bot.command("stop", (ctx) => {
@@ -237,29 +311,12 @@ async function checkAllUsers() {
         for (const pos of positions) {
           const ltv = parseFloat(pos.ltv);
           const liquidationLtv = parseFloat(pos.liquidationLtv);
-          const healthFactor = liquidationLtv / ltv;
 
-          logger.info({ chatId, wallet, market: pos.market, ltv, liquidationLtv, healthFactor }, "Health factor");
+          logger.info({ chatId, wallet, market: pos.market, ltv, liquidationLtv }, "Health factor");
           
-          let prefix = "";
-          
-          if (healthFactor > WARNING_HEALTH_FACTOR) {
-            continue;
-          }
+          const lines = positions.map(p => formatPosition({user, position: p}));
 
-          if (healthFactor <= DANGER_HEALTH_FACTOR) {
-            prefix = "DANGER: ";
-          } else if (healthFactor <= WARNING_HEALTH_FACTOR) {
-            prefix = "WARNING: ";
-          }
-          
-          logger.info({ chatId, wallet, market: pos.market, ltv }, "LTV changed");
-          
-          const lines = positions.map(p => 
-            `${p.market}: ${p.ltv}% (liq: ${p.liquidationLtv}%) (hf: ${p.healthFactor})`
-          );
-
-          bot.telegram.sendMessage(chatId, `${prefix}\`${wallet}\`\n\n${lines.join("\n")}`, { parse_mode: "Markdown" });
+          bot.telegram.sendMessage(chatId, `\`${wallet}\`\n\n${lines.join("\n\n")}`, { parse_mode: "Markdown" });
         }
         
         setUser(chatId, user);
@@ -301,3 +358,17 @@ process.once("SIGTERM", () => {
   logger.info("Shutting down (SIGTERM)");
   bot.stop("SIGTERM");
 });
+
+function formatPosition({user, position}) {
+  const warningHf = user?.warningHealthFactor ?? WARNING_HEALTH_FACTOR;
+  const dangerHf = user?.dangerHealthFactor ?? DANGER_HEALTH_FACTOR;
+
+  let prefix = "✅ ";
+  if (position.healthFactor <= dangerHf) {
+    prefix = "☠️ ";
+  } else if (position.healthFactor <= warningHf) {
+    prefix = "⚠️ ";
+  }
+
+  return `${prefix}${position.market}:\nLTV: ${position.ltv}%\nLiquidation LTV: ${position.liquidationLtv}%\nHealth Factor: ${position.healthFactor}`;
+}
