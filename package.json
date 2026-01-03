@@ -1,0 +1,19 @@
+{
+  "name": "ltv-watch",
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "node --env-file=.env bot.js"
+  },
+  "dependencies": {
+    "pino": "^10.1.0",
+    "telegraf": "^4.16.3"
+  },
+  "devDependencies": {
+    "pino-pretty": "^13.1.3"
+  }
+}
