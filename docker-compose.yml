@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass
+      - POSTGRES_MULTIPLE_DATABASES=core_db,aave_db,kamino_db,stats_db
+    volumes:
+      - ./scripts/postgres/init-multiple-databases.sh:/docker-entrypoint-initdb.d/init-multiple-databases.sh
+      - pg-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  core:
+    build: ./services/core
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/core_db
+      - AAVE_SERVICE_URL=http://aave:3001
+      - KAMINO_SERVICE_URL=http://kamino:3002
+    depends_on:
+      - postgres
+      - aave
+      - kamino
+
+  aave:
+    build: ./services/aave
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/aave_db
+    depends_on:
+      - postgres
+
+  kamino:
+    build: ./services/kamino
+    ports:
+      - "3002:3002"
+    environment:
+      - PORT=3002
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/kamino_db
+    depends_on:
+      - postgres
+
+  bot:
+    build: ./services/bot
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - CORE_SERVICE_URL=http://core:3000
+    depends_on:
+      - postgres
+      - core
+
+  stats:
+    build: ./services/stats
+    ports:
+      - "3003:3003"
+    environment:
+      - PORT=3003
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/stats_db
+    depends_on:
+      - postgres
+
+  crypto-scraper:
+    build: ./services/crypto-scraper
+    environment:
+      - STATS_SERVICE_URL=http://stats:3003
+      - SCRAPER_INTERVAL_SECONDS=30
+      - HEADLESS=true
+      - CAPTCHA_PROVIDER=2captcha
+      - CAPTCHA_API_KEY=0ff0e8f99b0a48239296f74ca7345689
+      - CAPTCHA_PROXY_TYPE=${CAPTCHA_PROXY_TYPE}
+      - CAPTCHA_PROXY_ADDRESS=${CAPTCHA_PROXY_ADDRESS}
+      - CAPTCHA_PROXY_PORT=${CAPTCHA_PROXY_PORT}
+      - CAPTCHA_PROXY_LOGIN=${CAPTCHA_PROXY_LOGIN}
+      - CAPTCHA_PROXY_PASSWORD=${CAPTCHA_PROXY_PASSWORD}
+      - CAPTCHA_USER_AGENT=${CAPTCHA_USER_AGENT}
+      - JUPITER_API_KEY=${JUPITER_API_KEY}
+    depends_on:
+      - stats
+
+  dashboard:
+    build:
+      context: ./services/dashboard
+      args:
+        - VITE_STATS_API_URL=http://localhost:3003
+    ports:
+      - "3004:80"
+    depends_on:
+      - stats
+
+volumes:
+  pg-data:

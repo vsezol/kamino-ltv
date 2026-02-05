@@ -1,0 +1,14 @@
+# Use official Rust image
+FROM rust:latest
+
+# Set working directory
+WORKDIR /app
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN cargo build --release
+
+# Set the entrypoint to the compiled binary using absolute path
+ENTRYPOINT ["/app/target/release/book-of-profits"]

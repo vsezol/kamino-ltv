@@ -1,0 +1,19 @@
+{
+  "name": "crypto-scraper",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js",
+    "dev:sol": "node dev-sol.js"
+  },
+  "dependencies": {
+    "@jup-ag/api": "^6.0.48",
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.2.2",
+    "playwright": "^1.58.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  }
+}

@@ -3,3 +3,4 @@ node_modules
 db.json
 db-aave.json
 db-kamino.json
+database.sqlite

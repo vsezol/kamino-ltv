@@ -15,12 +15,14 @@ export async function fetchMarkets() {
   const markets = await response.json();
   setMarkets(markets);
   
-  logger.info({ count: markets.length }, "Markets loaded and saved");
+  logger.info({ count: markets.length }, "Markets loaded and saved to DB");
   return markets;
 }
 
-export function getCachedMarkets() {
-  return getMarketsFromDb();
+export async function getCachedMarkets() {
+  const cached = getMarketsFromDb();
+  if (cached && cached.length > 0) return cached;
+  return fetchMarkets();
 }
 
 export async function getObligations(marketPubkey, walletAddress) {
@@ -58,7 +60,7 @@ function parseObligation(obl, marketName) {
 }
 
 export async function scanAllMarketsForWallet(walletAddress, marketCheckCallback) {
-  const markets = getCachedMarkets();
+  const markets = await getCachedMarkets();
   
   if (!markets || markets.length === 0) {
     throw new Error("Markets not loaded");
@@ -88,7 +90,7 @@ export async function scanAllMarketsForWallet(walletAddress, marketCheckCallback
 }
 
 export async function checkSpecificMarkets(walletAddress, marketNames) {
-  const allMarkets = getCachedMarkets();
+  const allMarkets = await getCachedMarkets();
   
   if (!allMarkets || allMarkets.length === 0) {
     throw new Error("Markets not loaded");
