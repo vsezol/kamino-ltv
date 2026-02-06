@@ -6,7 +6,7 @@ services:
     environment:
       - POSTGRES_USER=user
       - POSTGRES_PASSWORD=pass
-      - POSTGRES_MULTIPLE_DATABASES=core_db,aave_db,kamino_db,stats_db,budgetbakers_db
+      - POSTGRES_MULTIPLE_DATABASES=core_db,aave_db,kamino_db,stats_db,budgetbakers_db,snowball_db
     volumes:
       - ./scripts/postgres/init-multiple-databases.sh:/docker-entrypoint-initdb.d/init-multiple-databases.sh
       - pg-data:/var/lib/postgresql/data
@@ -76,6 +76,16 @@ services:
     depends_on:
       - postgres
 
+  snowball:
+    build: ./services/snowball
+    ports:
+      - "3006:3006"
+    environment:
+      - PORT=3006
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/snowball_db
+    depends_on:
+      - postgres
+
   crypto-scraper:
     build: ./services/crypto-scraper
     environment:
@@ -101,11 +111,13 @@ services:
       args:
         - VITE_STATS_API_URL=http://localhost:3003
         - VITE_BUDGETBAKERS_API_URL=http://localhost:3005
+        - VITE_SNOWBALL_API_URL=http://localhost:3006
     ports:
       - "3004:80"
     depends_on:
       - stats
       - budgetbakers
+      - snowball
 
 volumes:
   pg-data:

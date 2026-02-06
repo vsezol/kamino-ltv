@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { fetchWalletHistory, PricePoint, Wallet, listBBAccounts, fetchBBAccountHistory, BBAccount } from "@/api/stats";
+import { fetchWalletHistory, PricePoint, Wallet, listBBAccounts, fetchBBAccountHistory, BBAccount, listSnowballPortfolios, fetchSnowballPortfolioHistory, SnowballPortfolio } from "@/api/stats";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,6 +40,17 @@ const BB_COLORS = [
   "#f59e0b", // amber
   "#ef4444", // red
   "#6366f1"  // indigo
+];
+
+const SNOWBALL_COLORS = [
+  "#f472b6", // pink
+  "#38bdf8", // sky
+  "#a78bfa", // violet
+  "#4ade80", // green
+  "#fb923c", // orange
+  "#c084fc", // purple
+  "#22d3ee", // cyan
+  "#facc15"  // yellow
 ];
 
 const SUM_COLOR = "#10b981"; // emerald - color for summed chart
@@ -93,6 +104,7 @@ interface SeriesData {
   color: string;
   data: LineData[];
   isBB?: boolean;
+  isSnowball?: boolean;
 }
 
 function buildSeriesData({
@@ -264,6 +276,17 @@ export default function ModeCharts({ wallets, trackedWallets }: ModeChartsProps)
     return bbAccountsData.accounts.filter(acc => !acc.excluded && !acc.archived);
   }, [bbAccountsData]);
 
+  const { data: snowballData } = useQuery({
+    queryKey: ["snowball-portfolios"],
+    queryFn: listSnowballPortfolios,
+    refetchInterval: 60000
+  });
+
+  const snowballPortfolios = useMemo(() => {
+    if (!snowballData?.connected || !snowballData?.portfolios) return [];
+    return snowballData.portfolios.filter(p => !p.excluded && !p.isComposite);
+  }, [snowballData]);
+
   const walletQueries = useQueries({
     queries: tracked.map((wallet) => ({
       queryKey: ["history", wallet.id, range.from, range.to, period],
@@ -280,9 +303,18 @@ export default function ModeCharts({ wallets, trackedWallets }: ModeChartsProps)
     }))
   });
 
+  const snowballHistoryQueries = useQueries({
+    queries: snowballPortfolios.map((p) => ({
+      queryKey: ["snowball-history", p.id, range.from, range.to, period],
+      queryFn: () => fetchSnowballPortfolioHistory(p.id, range.from, range.to),
+      refetchInterval: 60000
+    }))
+  });
+
   const trackedIds = useMemo(() => tracked.map((w) => `wallet-${w.id}`), [tracked]);
   const bbIds = useMemo(() => bbAccounts.map((acc) => `bb-${acc.id}`), [bbAccounts]);
-  const allIds = useMemo(() => [...trackedIds, ...bbIds], [trackedIds, bbIds]);
+  const snowballIds = useMemo(() => snowballPortfolios.map((p) => `snowball-${p.id}`), [snowballPortfolios]);
+  const allIds = useMemo(() => [...trackedIds, ...bbIds, ...snowballIds], [trackedIds, bbIds, snowballIds]);
   const allIdsKey = allIds.join(",");
 
   useEffect(() => {
@@ -311,7 +343,8 @@ export default function ModeCharts({ wallets, trackedWallets }: ModeChartsProps)
         id: `wallet-${wallet.id}`,
         label: getWalletLabel(wallet),
         points: (walletQueries[index]?.data as PricePoint[]) || [],
-        isBB: false
+        isBB: false,
+        isSnowball: false
       })),
     [tracked, walletQueries]
   );
@@ -328,13 +361,33 @@ export default function ModeCharts({ wallets, trackedWallets }: ModeChartsProps)
           id: `bb-${acc.id}`,
           label: acc.name,
           points,
-          isBB: true
+          isBB: true,
+          isSnowball: false
         };
       }),
     [bbAccounts, bbHistoryQueries]
   );
 
-  const allSeries = useMemo(() => [...series, ...bbSeries], [series, bbSeries]);
+  const snowballSeries = useMemo(
+    () =>
+      snowballPortfolios.map((p, index) => {
+        const historyData = snowballHistoryQueries[index]?.data;
+        const points: PricePoint[] = historyData?.points?.map(pt => ({
+          priceUsd: pt.balanceUsd ?? 0,
+          recordedAt: pt.recordedAt
+        })) || [];
+        return {
+          id: `snowball-${p.id}`,
+          label: p.name,
+          points,
+          isBB: false,
+          isSnowball: true
+        };
+      }),
+    [snowballPortfolios, snowballHistoryQueries]
+  );
+
+  const allSeries = useMemo(() => [...series, ...bbSeries, ...snowballSeries], [series, bbSeries, snowballSeries]);
 
   const selectedIdsSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
@@ -345,20 +398,30 @@ export default function ModeCharts({ wallets, trackedWallets }: ModeChartsProps)
     
     const allWalletBuckets = allSeries
       .filter((item) => item)
-      .map((item, globalIndex) => {
+      .map((item) => {
         const isBB = item.isBB;
-        const colorIndex = isBB 
-          ? bbAccounts.findIndex(acc => `bb-${acc.id}` === item.id)
-          : tracked.findIndex(w => `wallet-${w.id}` === item.id);
-        const color = isBB 
-          ? BB_COLORS[colorIndex % BB_COLORS.length]
-          : WALLET_COLORS[colorIndex % WALLET_COLORS.length];
+        const isSnowball = item.isSnowball;
+        let colorIndex = 0;
+        let color = WALLET_COLORS[0];
+        
+        if (isSnowball) {
+          colorIndex = snowballPortfolios.findIndex(p => `snowball-${p.id}` === item.id);
+          color = SNOWBALL_COLORS[colorIndex % SNOWBALL_COLORS.length];
+        } else if (isBB) {
+          colorIndex = bbAccounts.findIndex(acc => `bb-${acc.id}` === item.id);
+          color = BB_COLORS[colorIndex % BB_COLORS.length];
+        } else {
+          colorIndex = tracked.findIndex(w => `wallet-${w.id}` === item.id);
+          color = WALLET_COLORS[colorIndex % WALLET_COLORS.length];
+        }
+        
         return {
           id: item.id,
           label: item.label,
           color,
           buckets: bucketPoints(item.points || [], range.bucketMs),
-          isBB
+          isBB,
+          isSnowball
         };
       });
 
@@ -436,14 +499,15 @@ export default function ModeCharts({ wallets, trackedWallets }: ModeChartsProps)
             label: wallet.label,
             color: wallet.color,
             data,
-            isBB: wallet.isBB
+            isBB: wallet.isBB,
+            isSnowball: wallet.isSnowball
           });
         }
       });
     }
 
     return result;
-  }, [allSeries, selectedIdsSet, range, sumSelected, tracked, bbAccounts]);
+  }, [allSeries, selectedIdsSet, range, sumSelected, tracked, bbAccounts, snowballPortfolios]);
 
   // Initialize chart
   useEffect(() => {
@@ -652,12 +716,12 @@ export default function ModeCharts({ wallets, trackedWallets }: ModeChartsProps)
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
-          {tracked.length === 0 && bbAccounts.length === 0 && (
+          {tracked.length === 0 && bbAccounts.length === 0 && snowballPortfolios.length === 0 && (
             <p className="text-sm text-foreground/60">
-              Add wallets or connect BudgetBakers to unlock portfolio history.
+              Add wallets or connect integrations to unlock portfolio history.
             </p>
           )}
-          {(tracked.length > 0 || bbAccounts.length > 0) && (
+          {(tracked.length > 0 || bbAccounts.length > 0 || snowballPortfolios.length > 0) && (
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -711,6 +775,27 @@ export default function ModeCharts({ wallets, trackedWallets }: ModeChartsProps)
               </button>
             );
           })}
+          {snowballPortfolios.map((p, index) => {
+            const snowballId = `snowball-${p.id}`;
+            const isSelected = selectedIdsSet.has(snowballId);
+            const color = SNOWBALL_COLORS[index % SNOWBALL_COLORS.length];
+            
+            return (
+              <button
+                key={snowballId}
+                className="inline-flex items-center justify-center rounded-full font-medium transition h-9 px-4 text-sm border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                style={{
+                  backgroundColor: isSelected ? color : "transparent",
+                  borderColor: color,
+                  color: isSelected ? "white" : "rgba(255, 255, 255, 0.8)"
+                }}
+                onClick={() => toggleWallet(snowballId)}
+                title={`Snowball: ${p.name}`}
+              >
+                {p.name}
+              </button>
+            );
+          })}
         </div>
 
         {/* Legend */}
@@ -738,7 +823,7 @@ export default function ModeCharts({ wallets, trackedWallets }: ModeChartsProps)
           />
           
           {/* Empty state overlay */}
-          {!hasData && (tracked.length > 0 || bbAccounts.length > 0) && (
+          {!hasData && (tracked.length > 0 || bbAccounts.length > 0 || snowballPortfolios.length > 0) && (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-foreground/40 bg-black/20">
               <div className="h-12 w-12 rounded-full border-2 border-dashed border-current animate-pulse" />
               <p className="text-center mt-4">
@@ -752,9 +837,9 @@ export default function ModeCharts({ wallets, trackedWallets }: ModeChartsProps)
             </div>
           )}
           
-          {tracked.length === 0 && bbAccounts.length === 0 && (
+          {tracked.length === 0 && bbAccounts.length === 0 && snowballPortfolios.length === 0 && (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-foreground/40">
-              <p className="text-center">Add wallets or connect BudgetBakers to see portfolio history.</p>
+              <p className="text-center">Add wallets or connect integrations to see portfolio history.</p>
             </div>
           )}
         </div>

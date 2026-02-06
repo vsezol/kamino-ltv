@@ -15,6 +15,7 @@ export interface PricePoint {
 
 export const baseUrl = import.meta.env.VITE_STATS_API_URL || "http://localhost:3003";
 export const bbBaseUrl = import.meta.env.VITE_BUDGETBAKERS_API_URL || "http://localhost:3005";
+export const snowballBaseUrl = import.meta.env.VITE_SNOWBALL_API_URL || "http://localhost:3006";
 
 async function request<T>(path: string, options?: RequestInit, customBaseUrl?: string): Promise<T> {
   const url = customBaseUrl || baseUrl;
@@ -168,6 +169,99 @@ export async function fetchBBAccountHistory(accountId: number, from?: string, to
     `/api/accounts/${accountId}/history${query ? `?${query}` : ""}`,
     undefined,
     bbBaseUrl
+  );
+  return data;
+}
+
+// Snowball Income API
+export interface SnowballCredentialsStatus {
+  connected: boolean;
+  email?: string;
+  updatedAt?: string;
+}
+
+export interface SnowballPortfolio {
+  id: number;
+  credentialId: number;
+  portfolioId: string;
+  name: string;
+  currency?: string;
+  isComposite: boolean;
+  currentCostUsd: number;
+  incomePercent: number;
+  excluded: boolean;
+  lastSync?: string;
+}
+
+export interface SnowballHistoryPoint {
+  balanceUsd: number;
+  recordedAt: string;
+}
+
+export async function getSnowballCredentials(): Promise<SnowballCredentialsStatus> {
+  return request<SnowballCredentialsStatus>("/api/credentials", undefined, snowballBaseUrl);
+}
+
+export async function saveSnowballCredentials(email: string, password: string) {
+  return request<{ status: string; message: string }>(
+    "/api/credentials",
+    {
+      method: "POST",
+      body: JSON.stringify({ email, password })
+    },
+    snowballBaseUrl
+  );
+}
+
+export async function deleteSnowballCredentials() {
+  return request<{ status: string }>("/api/credentials", {
+    method: "DELETE"
+  }, snowballBaseUrl);
+}
+
+export async function listSnowballPortfolios(): Promise<{ portfolios: SnowballPortfolio[]; connected: boolean }> {
+  return request<{ portfolios: SnowballPortfolio[]; connected: boolean }>(
+    "/api/portfolios",
+    undefined,
+    snowballBaseUrl
+  );
+}
+
+export async function updateSnowballPortfolio(id: number, excluded: boolean) {
+  return request<{ status: string }>(`/api/portfolios/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ excluded })
+  }, snowballBaseUrl);
+}
+
+export async function syncSnowballPortfolios() {
+  return request<{ status: string; message: string }>("/api/sync", {
+    method: "POST"
+  }, snowballBaseUrl);
+}
+
+export async function getSnowballTotalBalance(): Promise<{ totalUsd: number; connected: boolean }> {
+  return request<{ totalUsd: number; connected: boolean }>(
+    "/api/balance",
+    undefined,
+    snowballBaseUrl
+  );
+}
+
+export async function fetchSnowballPortfolioHistory(portfolioId: number, from?: string, to?: string) {
+  const params = new URLSearchParams();
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  const query = params.toString();
+  const data = await request<{ 
+    portfolioId: number; 
+    name: string; 
+    currency?: string;
+    points: SnowballHistoryPoint[] 
+  }>(
+    `/api/portfolios/${portfolioId}/history${query ? `?${query}` : ""}`,
+    undefined,
+    snowballBaseUrl
   );
   return data;
 }

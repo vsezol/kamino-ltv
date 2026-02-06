@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Wallet, getBBTotalBalance } from "@/api/stats";
+import { Wallet, getBBTotalBalance, getSnowballTotalBalance } from "@/api/stats";
 import { AnimatedPrice } from "@/components/AnimatedPrice";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -35,6 +35,12 @@ export default function ModeTotal({
     refetchInterval: 60000
   });
 
+  const { data: snowballBalance } = useQuery({
+    queryKey: ["snowball-balance"],
+    queryFn: getSnowballTotalBalance,
+    refetchInterval: 60000
+  });
+
   const trackedSet = new Set(trackedWallets.map((item) => item.toLowerCase()));
   const cryptoTotal = wallets.reduce((sum, wallet) => {
     if (!trackedSet.has(wallet.address.toLowerCase())) {
@@ -44,7 +50,8 @@ export default function ModeTotal({
   }, 0);
 
   const bbTotal = bbBalance?.connected ? bbBalance.totalUsd : 0;
-  const total = cryptoTotal + bbTotal;
+  const snowballTotal = snowballBalance?.connected ? snowballBalance.totalUsd : 0;
+  const total = cryptoTotal + bbTotal + snowballTotal;
 
   // Update relative time every second
   useEffect(() => {
@@ -74,10 +81,13 @@ export default function ModeTotal({
         <div className="text-4xl font-semibold md:text-6xl">
           <AnimatedPrice value={total} duration={600} />
         </div>
-        <div className="flex gap-4 text-xs text-foreground/50">
+        <div className="flex flex-wrap justify-center gap-4 text-xs text-foreground/50">
           <span>Crypto: ${cryptoTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           {bbBalance?.connected && (
             <span>BudgetBakers: ${bbTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          )}
+          {snowballBalance?.connected && (
+            <span>Snowball: ${snowballTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           )}
         </div>
         <p className="text-sm text-foreground/60">

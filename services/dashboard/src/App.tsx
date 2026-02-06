@@ -5,6 +5,7 @@ import WalletManager from "@/components/WalletManager";
 import ModeTotal from "@/components/ModeTotal";
 import ModeCharts from "@/components/ModeCharts";
 import BudgetBakersSettings from "@/components/BudgetBakersSettings";
+import SnowballSettings from "@/components/SnowballSettings";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useSSE, PriceUpdate } from "@/hooks/useSSE";
 
@@ -70,12 +71,13 @@ export default function App() {
         isSSEConnected={isSSEConnected}
       />
 
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         <WalletManager
           trackedWallets={trackedWallets}
           setTrackedWallets={setTrackedWallets}
         />
         <BudgetBakersSettings />
+        <SnowballSettings />
       </div>
       </div>
     </div>
