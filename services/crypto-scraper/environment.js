@@ -11,6 +11,7 @@ for (const key of required) {
 
 export const env = {
   STATS_SERVICE_URL: process.env.STATS_SERVICE_URL,
+  BUDGETBAKERS_SERVICE_URL: process.env.BUDGETBAKERS_SERVICE_URL || "http://localhost:3005",
   SCRAPER_INTERVAL_SECONDS: parseNumber("SCRAPER_INTERVAL_SECONDS", 30),
   HEADLESS: (process.env.HEADLESS || "false").toLowerCase() === "true",
   PLAYWRIGHT_SLOWMO: parseNumber("PLAYWRIGHT_SLOWMO", 0),

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { useQueries } from "@tanstack/react-query";
-import { fetchWalletHistory, PricePoint, Wallet } from "@/api/stats";
+import { useQueries, useQuery } from "@tanstack/react-query";
+import { fetchWalletHistory, PricePoint, Wallet, listBBAccounts, fetchBBAccountHistory, BBAccount } from "@/api/stats";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,6 +29,17 @@ const WALLET_COLORS = [
   "#ec4899", // pink
   "#f43f5e", // red
   "#a3e635"  // lime
+];
+
+const BB_COLORS = [
+  "#3b82f6", // blue
+  "#14b8a6", // teal
+  "#8b5cf6", // violet
+  "#06b6d4", // cyan
+  "#84cc16", // lime
+  "#f59e0b", // amber
+  "#ef4444", // red
+  "#6366f1"  // indigo
 ];
 
 const SUM_COLOR = "#10b981"; // emerald - color for summed chart
@@ -77,10 +88,11 @@ function bucketPoints(points: PricePoint[], bucketMs: number) {
 }
 
 interface SeriesData {
-  id: number | "sum";
+  id: number | string;
   label: string;
   color: string;
   data: LineData[];
+  isBB?: boolean;
 }
 
 function buildSeriesData({
@@ -228,19 +240,29 @@ export default function ModeCharts({ wallets, trackedWallets }: ModeChartsProps)
 
   const [period, setPeriod] = useState<PeriodKey>("1H");
   const range = useMemo(() => buildRangeForPeriod(period), [period]);
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [sumSelected, setSumSelected] = useState(false);
   
-  // Track initialization and known IDs with refs (don't trigger re-renders)
   const initializedRef = useRef(false);
-  const knownIdsRef = useRef<Set<number>>(new Set());
+  const knownIdsRef = useRef<Set<string>>(new Set());
   
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const seriesMapRef = useRef<Map<number | "sum", ISeriesApi<"Line">>>(new Map());
+  const seriesMapRef = useRef<Map<number | string, ISeriesApi<"Line">>>(new Map());
   
   const [legendItems, setLegendItems] = useState<LegendItem[]>([]);
   const [hasData, setHasData] = useState(false);
+
+  const { data: bbAccountsData } = useQuery({
+    queryKey: ["bb-accounts"],
+    queryFn: listBBAccounts,
+    refetchInterval: 60000
+  });
+
+  const bbAccounts = useMemo(() => {
+    if (!bbAccountsData?.connected || !bbAccountsData?.accounts) return [];
+    return bbAccountsData.accounts.filter(acc => !acc.excluded && !acc.archived);
+  }, [bbAccountsData]);
 
   const walletQueries = useQueries({
     queries: tracked.map((wallet) => ({
@@ -250,54 +272,178 @@ export default function ModeCharts({ wallets, trackedWallets }: ModeChartsProps)
     }))
   });
 
-  // Memoize tracked IDs (as numbers) to prevent unnecessary effect runs
-  const trackedIds = useMemo(() => tracked.map((w) => Number(w.id)), [tracked]);
-  const trackedIdsKey = trackedIds.join(",");
+  const bbHistoryQueries = useQueries({
+    queries: bbAccounts.map((acc) => ({
+      queryKey: ["bb-history", acc.id, range.from, range.to, period],
+      queryFn: () => fetchBBAccountHistory(acc.id, range.from, range.to),
+      refetchInterval: 60000
+    }))
+  });
+
+  const trackedIds = useMemo(() => tracked.map((w) => `wallet-${w.id}`), [tracked]);
+  const bbIds = useMemo(() => bbAccounts.map((acc) => `bb-${acc.id}`), [bbAccounts]);
+  const allIds = useMemo(() => [...trackedIds, ...bbIds], [trackedIds, bbIds]);
+  const allIdsKey = allIds.join(",");
 
   useEffect(() => {
-    // Initialize once with all wallets selected
-    if (!initializedRef.current && trackedIds.length > 0) {
+    if (!initializedRef.current && allIds.length > 0) {
       initializedRef.current = true;
-      trackedIds.forEach((id) => knownIdsRef.current.add(id));
-      setSelectedIds(trackedIds);
+      allIds.forEach((id) => knownIdsRef.current.add(id));
+      setSelectedIds(allIds);
       return;
     }
 
-    // After initialization, only handle new wallets
     if (initializedRef.current) {
-      const genuinelyNewIds = trackedIds.filter((id) => !knownIdsRef.current.has(id));
+      const genuinelyNewIds = allIds.filter((id) => !knownIdsRef.current.has(id));
       
       if (genuinelyNewIds.length > 0) {
         genuinelyNewIds.forEach((id) => knownIdsRef.current.add(id));
         setSelectedIds((prev) => [...prev, ...genuinelyNewIds]);
       }
       
-      // Remove IDs no longer being tracked
-      setSelectedIds((prev) => prev.filter((id) => trackedIds.includes(id)));
+      setSelectedIds((prev) => prev.filter((id) => allIds.includes(id)));
     }
-  }, [trackedIdsKey]);
+  }, [allIdsKey]);
 
   const series = useMemo(
     () =>
       tracked.map((wallet, index) => ({
-        id: wallet.id,
+        id: `wallet-${wallet.id}`,
         label: getWalletLabel(wallet),
-        points: (walletQueries[index]?.data as PricePoint[]) || []
+        points: (walletQueries[index]?.data as PricePoint[]) || [],
+        isBB: false
       })),
     [tracked, walletQueries]
   );
 
-  const selectedIdsSet = useMemo(() => new Set(selectedIds.map(Number)), [selectedIds]);
+  const bbSeries = useMemo(
+    () =>
+      bbAccounts.map((acc, index) => {
+        const historyData = bbHistoryQueries[index]?.data;
+        const points: PricePoint[] = historyData?.points?.map(p => ({
+          priceUsd: p.balanceUsd ?? 0,
+          recordedAt: p.recordedAt
+        })) || [];
+        return {
+          id: `bb-${acc.id}`,
+          label: acc.name,
+          points,
+          isBB: true
+        };
+      }),
+    [bbAccounts, bbHistoryQueries]
+  );
+
+  const allSeries = useMemo(() => [...series, ...bbSeries], [series, bbSeries]);
+
+  const selectedIdsSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   const seriesData = useMemo(() => {
-    return buildSeriesData({
-      series,
-      selectedIds: selectedIdsSet,
-      range,
-      sumSelected,
-      tracked
+    if (!allSeries || !Array.isArray(allSeries)) return [];
+
+    const result: SeriesData[] = [];
+    
+    const allWalletBuckets = allSeries
+      .filter((item) => item)
+      .map((item, globalIndex) => {
+        const isBB = item.isBB;
+        const colorIndex = isBB 
+          ? bbAccounts.findIndex(acc => `bb-${acc.id}` === item.id)
+          : tracked.findIndex(w => `wallet-${w.id}` === item.id);
+        const color = isBB 
+          ? BB_COLORS[colorIndex % BB_COLORS.length]
+          : WALLET_COLORS[colorIndex % WALLET_COLORS.length];
+        return {
+          id: item.id,
+          label: item.label,
+          color,
+          buckets: bucketPoints(item.points || [], range.bucketMs),
+          isBB
+        };
+      });
+
+    if (allWalletBuckets.length === 0) return [];
+
+    const selectedWalletBuckets = allWalletBuckets.filter((w) => selectedIdsSet.has(w.id));
+    
+    if (selectedWalletBuckets.length === 0) return [];
+
+    const allTimestamps = new Set<number>();
+    selectedWalletBuckets.forEach((wallet) => {
+      wallet.buckets.forEach((_, time) => {
+        allTimestamps.add(time);
+      });
     });
-  }, [series, selectedIdsSet, range, sumSelected, tracked]);
+
+    if (allTimestamps.size === 0) return [];
+
+    const sortedTimestamps = Array.from(allTimestamps).sort((a, b) => a - b);
+
+    if (sumSelected) {
+      const sumData: LineData[] = [];
+      const lastValues = new Map<string, number>();
+
+      sortedTimestamps.forEach((time) => {
+        selectedWalletBuckets.forEach((wallet) => {
+          const entry = wallet.buckets.get(time);
+          if (entry) {
+            lastValues.set(wallet.id, entry.sum / entry.count);
+          }
+        });
+
+        if (lastValues.size > 0) {
+          let total = 0;
+          lastValues.forEach((value) => {
+            total += value;
+          });
+          sumData.push({
+            time: (time / 1000) as UTCTimestamp,
+            value: total
+          });
+        }
+      });
+
+      if (sumData.length > 0) {
+        const selectedLabels = selectedWalletBuckets.map(w => w.label).join(" + ");
+        result.push({
+          id: "sum",
+          label: selectedLabels.length > 30 ? "Sum" : selectedLabels,
+          color: SUM_COLOR,
+          data: sumData
+        });
+      }
+    } else {
+      selectedWalletBuckets.forEach((wallet) => {
+        const data: LineData[] = [];
+        let lastValue: number | null = null;
+
+        sortedTimestamps.forEach((time) => {
+          const entry = wallet.buckets.get(time);
+          if (entry) {
+            lastValue = entry.sum / entry.count;
+          }
+          if (lastValue !== null) {
+            data.push({
+              time: (time / 1000) as UTCTimestamp,
+              value: lastValue
+            });
+          }
+        });
+
+        if (data.length > 0) {
+          result.push({
+            id: wallet.id,
+            label: wallet.label,
+            color: wallet.color,
+            data,
+            isBB: wallet.isBB
+          });
+        }
+      });
+    }
+
+    return result;
+  }, [allSeries, selectedIdsSet, range, sumSelected, tracked, bbAccounts]);
 
   // Initialize chart
   useEffect(() => {
@@ -478,13 +624,11 @@ export default function ModeCharts({ wallets, trackedWallets }: ModeChartsProps)
     setLegendItems(items);
   }, [seriesData]);
 
-  const toggleWallet = useCallback((id: number) => {
-    const numId = Number(id);
+  const toggleWallet = useCallback((id: string) => {
     setSelectedIds((prev) => {
-      const numPrev = prev.map(Number);
-      return numPrev.includes(numId) 
-        ? numPrev.filter((item) => item !== numId) 
-        : [...numPrev, numId];
+      return prev.includes(id) 
+        ? prev.filter((item) => item !== id) 
+        : [...prev, id];
     });
   }, []);
 
@@ -508,12 +652,12 @@ export default function ModeCharts({ wallets, trackedWallets }: ModeChartsProps)
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
-          {tracked.length === 0 && (
+          {tracked.length === 0 && bbAccounts.length === 0 && (
             <p className="text-sm text-foreground/60">
-              Add wallets to unlock portfolio history.
+              Add wallets or connect BudgetBakers to unlock portfolio history.
             </p>
           )}
-          {tracked.length > 0 && (
+          {(tracked.length > 0 || bbAccounts.length > 0) && (
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -526,7 +670,7 @@ export default function ModeCharts({ wallets, trackedWallets }: ModeChartsProps)
           )}
           {tracked.map((wallet, index) => {
             const label = getWalletLabel(wallet);
-            const walletId = Number(wallet.id);
+            const walletId = `wallet-${wallet.id}`;
             const isSelected = selectedIdsSet.has(walletId);
             const color = WALLET_COLORS[index % WALLET_COLORS.length];
             
@@ -543,6 +687,27 @@ export default function ModeCharts({ wallets, trackedWallets }: ModeChartsProps)
                 title={wallet.address}
               >
                 {label}
+              </button>
+            );
+          })}
+          {bbAccounts.map((acc, index) => {
+            const bbId = `bb-${acc.id}`;
+            const isSelected = selectedIdsSet.has(bbId);
+            const color = BB_COLORS[index % BB_COLORS.length];
+            
+            return (
+              <button
+                key={bbId}
+                className="inline-flex items-center justify-center rounded-full font-medium transition h-9 px-4 text-sm border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                style={{
+                  backgroundColor: isSelected ? color : "transparent",
+                  borderColor: color,
+                  color: isSelected ? "white" : "rgba(255, 255, 255, 0.8)"
+                }}
+                onClick={() => toggleWallet(bbId)}
+                title={`BudgetBakers: ${acc.name}`}
+              >
+                {acc.name}
               </button>
             );
           })}
@@ -573,7 +738,7 @@ export default function ModeCharts({ wallets, trackedWallets }: ModeChartsProps)
           />
           
           {/* Empty state overlay */}
-          {!hasData && tracked.length > 0 && (
+          {!hasData && (tracked.length > 0 || bbAccounts.length > 0) && (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-foreground/40 bg-black/20">
               <div className="h-12 w-12 rounded-full border-2 border-dashed border-current animate-pulse" />
               <p className="text-center mt-4">
@@ -587,9 +752,9 @@ export default function ModeCharts({ wallets, trackedWallets }: ModeChartsProps)
             </div>
           )}
           
-          {tracked.length === 0 && (
+          {tracked.length === 0 && bbAccounts.length === 0 && (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-foreground/40">
-              <p className="text-center">Add wallets to see portfolio history.</p>
+              <p className="text-center">Add wallets or connect BudgetBakers to see portfolio history.</p>
             </div>
           )}
         </div>

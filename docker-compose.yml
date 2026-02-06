@@ -6,7 +6,7 @@ services:
     environment:
       - POSTGRES_USER=user
       - POSTGRES_PASSWORD=pass
-      - POSTGRES_MULTIPLE_DATABASES=core_db,aave_db,kamino_db,stats_db
+      - POSTGRES_MULTIPLE_DATABASES=core_db,aave_db,kamino_db,stats_db,budgetbakers_db
     volumes:
       - ./scripts/postgres/init-multiple-databases.sh:/docker-entrypoint-initdb.d/init-multiple-databases.sh
       - pg-data:/var/lib/postgresql/data
@@ -66,10 +66,21 @@ services:
     depends_on:
       - postgres
 
+  budgetbakers:
+    build: ./services/budgetbakers
+    ports:
+      - "3005:3005"
+    environment:
+      - PORT=3005
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/budgetbakers_db
+    depends_on:
+      - postgres
+
   crypto-scraper:
     build: ./services/crypto-scraper
     environment:
       - STATS_SERVICE_URL=http://stats:3003
+      - BUDGETBAKERS_SERVICE_URL=http://budgetbakers:3005
       - SCRAPER_INTERVAL_SECONDS=30
       - HEADLESS=true
       - CAPTCHA_PROVIDER=2captcha
@@ -89,10 +100,12 @@ services:
       context: ./services/dashboard
       args:
         - VITE_STATS_API_URL=http://localhost:3003
+        - VITE_BUDGETBAKERS_API_URL=http://localhost:3005
     ports:
       - "3004:80"
     depends_on:
       - stats
+      - budgetbakers
 
 volumes:
   pg-data:

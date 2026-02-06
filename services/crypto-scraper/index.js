@@ -8,6 +8,7 @@ import { scrapeSol } from "./scrapers/sol.js";
 import { scrapeBtc } from "./scrapers/btc.js";
 import { scrapeTron } from "./scrapers/tron.js";
 import { maybeSolveCaptcha } from "./captcha.js";
+import { syncBudgetBakers } from "./scrapers/budgetbakers.js";
 
 chromium.use(StealthPlugin());
 
@@ -187,6 +188,17 @@ async function run() {
 
   await cycle();
   setInterval(cycle, env.SCRAPER_INTERVAL_SECONDS * 1000);
+
+  // BudgetBakers sync every 2 minutes
+  const bbSync = async () => {
+    try {
+      await syncBudgetBakers(env.BUDGETBAKERS_SERVICE_URL);
+    } catch (err) {
+      logger.error({ error: err.message }, "BB sync cycle error");
+    }
+  };
+  await bbSync();
+  setInterval(bbSync, 120 * 1000);
 
   process.on("SIGINT", async () => {
     await browser.close();

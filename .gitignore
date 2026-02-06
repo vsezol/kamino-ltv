@@ -4,3 +4,4 @@ db.json
 db-aave.json
 db-kamino.json
 database.sqlite
+dist

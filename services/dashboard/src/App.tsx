@@ -4,6 +4,7 @@ import { listWallets } from "@/api/stats";
 import WalletManager from "@/components/WalletManager";
 import ModeTotal from "@/components/ModeTotal";
 import ModeCharts from "@/components/ModeCharts";
+import BudgetBakersSettings from "@/components/BudgetBakersSettings";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useSSE, PriceUpdate } from "@/hooks/useSSE";
 
@@ -69,10 +70,13 @@ export default function App() {
         isSSEConnected={isSSEConnected}
       />
 
-      <WalletManager
-        trackedWallets={trackedWallets}
-        setTrackedWallets={setTrackedWallets}
-      />
+      <div className="grid gap-6 md:grid-cols-2">
+        <WalletManager
+          trackedWallets={trackedWallets}
+          setTrackedWallets={setTrackedWallets}
+        />
+        <BudgetBakersSettings />
+      </div>
       </div>
     </div>
   );

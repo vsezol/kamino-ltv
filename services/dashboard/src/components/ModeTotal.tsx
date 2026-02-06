@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Wallet } from "@/api/stats";
+import { useQuery } from "@tanstack/react-query";
+import { Wallet, getBBTotalBalance } from "@/api/stats";
 import { AnimatedPrice } from "@/components/AnimatedPrice";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -28,13 +29,22 @@ export default function ModeTotal({
 }: ModeTotalProps) {
   const [relativeTime, setRelativeTime] = useState<string>("");
 
+  const { data: bbBalance } = useQuery({
+    queryKey: ["bb-balance"],
+    queryFn: getBBTotalBalance,
+    refetchInterval: 60000
+  });
+
   const trackedSet = new Set(trackedWallets.map((item) => item.toLowerCase()));
-  const total = wallets.reduce((sum, wallet) => {
+  const cryptoTotal = wallets.reduce((sum, wallet) => {
     if (!trackedSet.has(wallet.address.toLowerCase())) {
       return sum;
     }
     return sum + (wallet.latestPriceUsd ?? 0);
   }, 0);
+
+  const bbTotal = bbBalance?.connected ? bbBalance.totalUsd : 0;
+  const total = cryptoTotal + bbTotal;
 
   // Update relative time every second
   useEffect(() => {
@@ -63,6 +73,12 @@ export default function ModeTotal({
         </div>
         <div className="text-4xl font-semibold md:text-6xl">
           <AnimatedPrice value={total} duration={600} />
+        </div>
+        <div className="flex gap-4 text-xs text-foreground/50">
+          <span>Crypto: ${cryptoTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          {bbBalance?.connected && (
+            <span>BudgetBakers: ${bbTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          )}
         </div>
         <p className="text-sm text-foreground/60">
           {lastUpdatedAt && relativeTime ? (
