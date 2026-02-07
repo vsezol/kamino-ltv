@@ -1,6 +1,0 @@
-ALTER TABLE credentials ADD COLUMN IF NOT EXISTS email VARCHAR(255);
-ALTER TABLE credentials ADD COLUMN IF NOT EXISTS password TEXT;
-ALTER TABLE credentials ADD COLUMN IF NOT EXISTS cookies_json TEXT;
-ALTER TABLE credentials ADD COLUMN IF NOT EXISTS cookies_expires_at TIMESTAMPTZ;
-
-ALTER TABLE credentials ALTER COLUMN cookie_header DROP NOT NULL;

@@ -1,5 +1,5 @@
 {
-  "name": "ltv-watch",
+  "name": "defi-eye",
   "version": "1.0.0",
   "type": "module",
   "engines": {
@@ -11,28 +11,19 @@
     "dev:aave": "cd services/aave && node index.js",
     "dev:kamino": "cd services/kamino && node index.js",
     "dev:bot": "cd services/bot && node bot.js",
-    "dev:stats": "cd services/stats && go run .",
-    "dev:scraper": "cd services/crypto-scraper && node index.js",
-    "dev:dashboard": "cd services/dashboard && npm run dev",
-    "dev:all": "concurrently \"npm run dev:core\" \"npm run dev:aave\" \"npm run dev:kamino\" \"npm run dev:bot\"",
     "docker:up": "docker-compose up --build",
     "docker:down": "docker-compose down"
   },
   "dependencies": {
     "@aave/contract-helpers": "^1.37.0",
     "@bgd-labs/aave-address-book": "^4.41.4",
-    "@ethersproject/signing-key": "^5.8.0",
-    "@keyv/sqlite": "^4.0.8",
     "axios": "^1.13.4",
     "ethers": "^5.8.0",
-    "keyv": "^5.6.0",
     "pg": "^8.17.2",
     "pino": "^10.1.0",
-    "qs": "^6.14.1",
     "telegraf": "^4.16.3"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1",
     "pino-pretty": "^13.1.3"
   }
 }
